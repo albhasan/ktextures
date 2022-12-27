@@ -9,9 +9,8 @@
 #' Neural Network which is used to separate the pixels in the given image
 #' according to their texture.
 #'
-#' @param red,green,blue,nir Paths to raster images corresponding to the red,
-#' green, blue, and near infrared bands of the spectrum. When red is a file
-#' with more than 3 bands, this function extracts the first 4 bands.
+#' @param file_path Paths to bands of a raster images corresponding to spectral
+#' bands (for example, red, green, blue, and near infrared).
 #' @param k Number of segments.
 #' @param out_file Path to the file resulting from the segmentation.
 #'
@@ -19,88 +18,61 @@
 #'
 #' @export
 #'
-k_textures <- function(red, green = NULL, blue = NULL, nir = NULL,
-                       k, out_file) {
+k_textures <- function(file_path, k, out_file) {
 
-    stopifnot("Red file not found" = file.exists(red))
+    stopifnot("File(s) not found!" = all(file.exists(file_path)))
 
-    # Get bands' paths.
-    if (is.null(green) && is.null(blue) && is.null(nir)) {
-        bands <- .image_to_rgba(red, out_dir = tempdir())
-        red <-   bands["red"]
-        green <- bands["green"]
-        blue <-  bands["blue"]
-        nir <-   bands["nir"]
+    # Read and scale images.
+    bands <- lapply(file_path, terra::rast)
+
+    if (length(bands) > 1)
+        stopifnot("Multiple multi-band images not supported!" =
+                  all(sapply(bands, terra::nlyr) == 1))
+
+    if (length(bands) > 1) {
+        # TODO: Build a gdal vrt using the given files.
+        stop("This option is not supported!")
     }
 
-    stopifnot("Green file not found" = file.exists(green))
-    stopifnot("Blue file not found" = file.exists(blue))
-    stopifnot("NIR file not found" = file.exists(nir))
+    img_r <- terra::rast(file_path[1])
+    img_scaled_r <- terra::scale(img_r)
 
-    red   <- terra::rast(red)
-    green <- terra::rast(green)
-    blue  <- terra::rast(blue)
-    nir   <- terra::rast(nir)
-
-    # Scale bands' values and export them to INT1U.
-    # NOTE: This values are only valid for Planet's rapid eye images.
-    bands_max   <- c("red" = 2540, "green" = 2540, "blue" = 2540, "nir" = 2540)
-    bands_scale <- c("red" = 10,   "green" = 10,   "blue" = 10,   "nir" = 10)
-    bands_local_scale <- c("red" = 1, "green" = 1, "blue" = 1, "nir" = 3.937)
-
-    red   <- min(red, (bands_max["red"]/bands_local_scale["red"]))/bands_scale["red"]
-    green <- min(green, (bands_max["green"]/bands_local_scale["green"]))/bands_scale["green"]
-    blue  <- min(blue, (bands_max["blue"]/bands_local_scale["blue"]))/bands_scale["blue"]
-    nir   <- min(nir, (bands_max["nir"]/bands_local_scale["nir"]))/bands_scale["nir"]
-
-    # Re-construct the images with 4-bands.
-    gdalUtilities::gdalbuildvrt(separate = TRUE)
-
-
+    breaks <- .split_r(img_r, col_size = 128, row_size = 128)
 
 }
 
-#' Export the bands of an image
+
+#' Compute the start and end pixels for spliting a raster.
 #'
-#' Exprot the first 4 bands of an image-file to independent files. This
-#' funciton assumes they correspond to red, green, blue, and near infra-red.
+#' @param r        A terra's raster object.
+#' @param col_size The numer of columns in each split along x.
+#' @param row_size The numer of rows in each split along y.
+#' @return         A data.frame.
 #'
-#' @param in_file Path to a file.
-#' @param out_dir Path to a directory for storing the results.
-#'
-#' @return A vector with the paths to the resulting files.
-#'
-.image_to_rgba <- function(in_file, out_dir) {
-    f_name <- tools::file_path_sans_ext(basename(in_file))
-    f_red <-  file.path(out_dir, paste0(f_name, "_red.tif"))
-    f_green<- file.path(out_dir, paste0(f_name, "_green.tif"))
-    f_blue<-  file.path(out_dir, paste0(f_name, "_blue.tif"))
-    f_nir<-   file.path(out_dir, paste0(f_name, "_nir.tif"))
-    red <- gdalUtilities::gdal_translate(
-        src_dataset = in_file,
-        dst_dataset = f_red,
-        b = 1,
-        colorinterp = "red"
-    )
-    green <- gdalUtilities::gdal_translate(
-        src_dataset = in_file,
-        dst_dataset = f_green,
-        b = 2,
-        colorinterp = "green"
-    )
-    blue <- gdalUtilities::gdal_translate(
-        src_dataset = in_file,
-        dst_dataset = f_blue,
-        b = 3,
-        colorinterp = "blue"
-    )
-    nir <- gdalUtilities::gdal_translate(
-        src_dataset = in_file,
-        dst_dataset = f_nir,
-        b = 4,
-        colorinterp = "alpha"
-    )
-    return(c("red" = f_red, "green" = f_green, "blue" = f_blue, "nir" = f_nir))
+.split_r <- function(r, col_size, row_size) {
+
+    col_seq <- seq(1, terra::ncol(r), by = col_size)
+    col_breaks <- data.frame(x_id = 1:length(col_seq),
+                             col_from = col_seq,
+                             col_to = c(col_seq[-1] - 1, terra::ncol(r)))
+    col_breaks <- col_breaks[col_breaks$col_from != col_breaks$col_to,]
+
+    row_seq <- seq(1, terra::nrow(r), by = row_size)
+    row_breaks <- data.frame(y_id = 1:length(row_seq),
+                           row_from = row_seq,
+                           row_to = c(row_seq[-1] - 1, terra::nrow(r)))
+    row_breaks <- row_breaks[row_breaks$row_from != row_breaks$row_to,]
+
+    breaks <- expand.grid(x_id = col_breaks[["x_id"]],
+                          y_id = row_breaks[["y_id"]])
+    breaks <- merge(breaks, row_breaks, by = "y_id")
+    breaks <- merge(breaks, col_breaks, by = "x_id")
+    breaks["x_from"] <- terra::xFromCol(r, breaks[["col_from"]])
+    breaks["x_to"]   <- terra::xFromCol(r, breaks[["col_to"]])
+    breaks["y_from"] <- terra::yFromRow(r, breaks[["row_from"]])
+    breaks["y_to"]   <- terra::yFromRow(r, breaks[["row_to"]])
+
+    return(breaks)
 }
 
 
