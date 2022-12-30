@@ -44,3 +44,61 @@ test_that("compute_split works with no overlap", {
     expect_equal(split[["row_to"]], split[["orow_to"]])
 
 })
+
+
+test_that("add_borders works", {
+
+    r <- terra::rast(system.file("extdata", "rapideye_2.tif",
+                                 package = "ktextures"))
+
+    col_overlap <- 3
+    row_overlap <- 5
+
+    larger_r <- add_borders(r,
+                            col_overlap = col_overlap,
+                            row_overlap = row_overlap)
+
+    # Test raster's properties.
+    expect_equal(crs(larger_r), crs(r))
+    expect_equal(nrow(larger_r), nrow(r) + (2 * row_overlap))
+    expect_equal(ncol(larger_r), ncol(r) + (2 * col_overlap))
+    expect_equal(prod(dim(larger_r)),
+                 prod(dim(r)) +
+                 ((2 * col_overlap * nrow(r)) +
+                 (2 * row_overlap * ncol(r)) +
+                 (4 * col_overlap * row_overlap)) * nlyr(r))
+
+    expect_true(dplyr::near(xmin(larger_r), xmin(r) - (xres(r) * col_overlap)))
+    expect_true(dplyr::near(xmax(larger_r), xmax(r) + (xres(r) * col_overlap)))
+    expect_true(dplyr::near(ymin(larger_r), ymin(r) - (yres(r) * row_overlap)))
+    expect_true(dplyr::near(ymax(larger_r), ymax(r) + (yres(r) * row_overlap)))
+
+    # Test raster's values.
+    expect_true(all(r[1, 1, ] == larger_r[row_overlap, col_overlap, ]))
+    expect_true(all(r[1, 1, ] == larger_r[row_overlap, col_overlap + 1, ]))
+    expect_true(all(r[1, 1, ] == larger_r[row_overlap + 1, col_overlap, ]))
+    expect_true(all(r[1, 1, ] == larger_r[row_overlap + 1, col_overlap + 1, ]))
+    expect_true(all(r[nrow(r), ncol(r), ] ==
+                    larger_r[nrow(larger_r) - row_overlap,
+                             ncol(larger_r) - col_overlap, ]))
+    expect_true(all(r[nrow(r), ncol(r), ] ==
+                    larger_r[nrow(larger_r) - row_overlap,
+                             ncol(larger_r) - col_overlap + 1, ]))
+    expect_true(all(r[nrow(r), ncol(r), ] ==
+                    larger_r[nrow(larger_r) - row_overlap + 1,
+                             ncol(larger_r) - col_overlap, ]))
+    expect_true(all(r[nrow(r), ncol(r), ] ==
+                    larger_r[nrow(larger_r) - row_overlap + 1,
+                             ncol(larger_r) - col_overlap + 1, ]))
+    expect_true(all(r[1, ncol(r), ] ==
+                    larger_r[row_overlap, ncol(larger_r) - col_overlap, ]))
+    expect_true(all(r[1, ncol(r), ] ==
+                    larger_r[row_overlap + 1,
+                             ncol(larger_r) - col_overlap + 1, ]))
+    expect_true(all(r[nrow(r), 1, ] ==
+                    larger_r[nrow(larger_r) - row_overlap, col_overlap, ]))
+    expect_true(all(r[nrow(r), 1, ] ==
+                    larger_r[nrow(larger_r) - row_overlap + 1,
+                             col_overlap + 1, ]))
+
+})
