@@ -18,5 +18,6 @@ test_that("k_textures works", {
     col_overlap <- row_overlap <- 4
     n_col <- terra::ncol(r)
     n_row <- terra::nrow(r)
+    tmp_dir <- tempdir()
 
 })

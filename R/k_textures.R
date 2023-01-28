@@ -1,4 +1,3 @@
-
 #' Segment an image using the k-textures algorithm
 #'
 #' Segment a satellite image using the k-textures algorithm. This is an
@@ -12,15 +11,24 @@
 #' @param r        A terra package object. A raster image.
 #' @param k        Number of segments.
 #' @param out_file Path to the file resulting from the segmentation.
+#' @param tmp_dir  Path to a directory for storing temporal files.
 #'
 #' @return         A terra's raster.
 #'
 #' @export
 #'
-k_textures <- function(r, k, out_file, col_size = 128, row_size = 128,
-                       col_overlap = 4, row_overlap = 4) {
+k_textures <- function(r, k, out_file, tmp_dir = tempdir()) {
 
-    base_dir <- tempfile(pattern = "k-textures-")
+
+    #---- Setup ----
+
+    # NOTE: The pre-trained models assumed the following:
+    col_size <- 128
+    row_size <- 128
+    col_overlap <- 4
+    row_overlap <- 4
+
+    base_dir <- tempfile(pattern = "k-textures-", tmpdir = tmp_dir)
     block_dir  <- file.path(base_dir, "data_block")
     oblock_dir <- file.path(base_dir, "data_block_overlap")
     if (!dir.exists(base_dir)) {
@@ -28,9 +36,19 @@ k_textures <- function(r, k, out_file, col_size = 128, row_size = 128,
         dir.create(oblock_dir)
     }
 
+
+    #---- Image pre-processing ----
+
     # Repeat pixels around the raster.
-    r_borders <- add_borders(r, col_overlap = col_overlap,
-                            row_overlap = row_overlap)
+    rs <- create_borders(r, col_overlap = col_overlap,
+                         row_overlap = row_overlap)
+    r_borders <- terra::mosaic(r, rs[["left"]], rs[["right"]], rs[["bottom"]],
+                               rs[["top"]], rs[["bottom_left"]],
+                               rs[["bottom_right"]], rs[["top_left"]],
+                               rs[["top_right"]],
+                               filename = file.path(base_dir,
+                                                    "image_borders.tif"))
+    rm(rs)
 
     # Get a data.frame with the start/end position of each image block.
     breaks <- compute_split(n_col = terra::ncol(r_borders),
@@ -62,6 +80,41 @@ k_textures <- function(r, k, out_file, col_size = 128, row_size = 128,
                                                     b[["col_from"]], ".tif")))
     })
 
-    # TODO: train the model?
+
+
+    #---- Train model ----
+
+    # Extract VGG16's last layer and freeze its weights.
+    layer_name <- "block5_conv3"
+    model_vgg <- keras::application_vgg16(weights = "imagenet",
+                                          include_top = FALSE)
+    intermediate_layer_model_vgg16 <- keras::keras_model(
+        inputs = model_vgg$input,
+        outputs = keras::get_layer(model_vgg, layer_name)$output
+    )
+    keras::freeze_weights(intermediate_layer_model_vgg16)
+    rm(model_vgg)
+
+    # Extract the pre-trained VAE layer (trained on Planet NICFI images,
+    # Mato Grosso, Brazil).
+    vae_planet_128 <- keras::load_model_hdf5(
+        system.file("extdata",
+                    "vae_planet_MODEL_3898_0.0001061_0.9703441_MODEL.h5",
+                    package = "ktextures"),
+        custom_objects = NULL,
+        compile = TRUE
+    )
+    intermediate_layer_model_vgg <- keras::keras_model(
+        inputs = vae_planet_128$input,
+        outputs = keras::get_layer(vae_planet_128, layer_name)$output
+    )
+    keras::freeze_weights(intermediate_layer_model_vgg)
+    rm(vae_planet_128)
+
+    model_layer_01 <- get_model()
+
+# load pretrained weights for the binary mask generator
+name_weights_file=paste0("./weights_hard_sigmoid/layer_hard_sigmoid_",k,"_classes_accuracy_0001.h5")
+load_model_weights_hdf5(model_layer_01, name_weights_file) 
 
 }
