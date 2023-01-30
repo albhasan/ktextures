@@ -4,19 +4,26 @@
 \alias{k_textures}
 \title{Segment an image using the k-textures algorithm}
 \usage{
-k_textures(red, green = NULL, blue = NULL, nir = NULL, k, out_file)
+k_textures(
+  r,
+  k,
+  out_file,
+  col_size = 128,
+  row_size = 128,
+  col_overlap = 4,
+  row_overlap = 4
+)
 }
 \arguments{
-\item{red, green, blue, nir}{Paths to raster images corresponding to the red,
-green, blue, and near infrared bands of the spectrum. When red is a file
-with more than 3 bands, this function extracts the first 4 bands.}
+\item{r}{A terra package object. A raster image.}
 
 \item{k}{Number of segments.}
 
 \item{out_file}{Path to the file resulting from the segmentation.}
 }
 \value{
-out_file.
+\if{html}{\out{<div class="sourceCode">}}\preformatted{    A terra's raster.
+}\if{html}{\out{</div>}}
 }
 \description{
 Segment a satellite image using the k-textures algorithm. This is an
